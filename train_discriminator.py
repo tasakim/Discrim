@@ -74,6 +74,14 @@ elif args.arch == 'densenet':
     max_seq_len = 12
     num_classes = 1000
 
+elif args.arch == 'deit':
+    test_list = [18, 36, 54, 72, 90, 108, 126, 144, 162, 180, 198, 216]
+
+    train_list = [18, 36, 54, 72, 90, 108, 126, 144, 162, 180, 198, 216]
+    max_dim = 768
+    max_seq_len = 3072
+    num_classes = 1000
+
 seed = 1042
 torch.manual_seed(seed)  # 为CPU设置随机种子
 torch.cuda.manual_seed(seed)  # 为当前GPU设置随机种子
@@ -131,7 +139,7 @@ if __name__ == '__main__':
 
     criterion_rec = nn.MSELoss().cuda(args.local_rank)
     lr = 1.5e-4 * args.repeat * torch.cuda.device_count() / 256
-    optimizer_rec = optim.AdamW(discrim.parameters(), lr=lr, weight_decay=5e-2, betas=(0.9, 0.95))  # 5e-4 1e-4
+    optimizer_rec = optim.AdamW(filter(lambda x: x.requires_grad, discrim.parameters()), lr=lr, weight_decay=5e-2, betas=(0.9, 0.95))  # 5e-4 1e-4
     scheduler_rec = optim.lr_scheduler.CosineAnnealingLR(optimizer_rec, T_max=args.epochs, eta_min=1e-5)
     discrim = discrim.cuda() if torch.cuda.is_available() else discrim
 
@@ -160,8 +168,8 @@ if __name__ == '__main__':
 
         if test_loss < tmp:
             if dist.get_rank() == 0:
-                # torch.save(deepcopy(discrim).module.cpu(), save_prefix + '_{}_.pt'.format(args.arch))
-                torch.save(deepcopy(discrim).module.cpu(), save_prefix + '_{}_finetune_on_resnet18.pt'.format('resnet56'))
+                torch.save(deepcopy(discrim).module.cpu(), save_prefix + '_{}_.pt'.format(args.arch))
+                # torch.save(deepcopy(discrim).module.cpu(), save_prefix + '_{}_finetune_on_resnet18.pt'.format('resnet56'))
             tmp = test_loss
 
         # if test_loss < tmp and dist.get_rank() == 0 and (epoch-epoch_flag)>=4 and epoch<600:

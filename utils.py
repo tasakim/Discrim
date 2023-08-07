@@ -37,6 +37,22 @@ class WData(Dataset):
                 else:
                     pass
                 count += 1
+            elif isinstance(module, nn.Linear):
+                if count in self.mask_index:
+                    item = module.weight
+                    length = item.shape[1]
+                    param = item.data.flatten(start_dim=1)
+                    param = self._normalize(param) if self.normalize else param
+                    if length < self.max_length:
+                        pad = torch.nn.ConstantPad1d((0, int(self.max_length - length)), 0)
+                        param = pad(param)
+                        # param = param
+                    else:
+                        param = param
+                    self.dataset.append([param, length])
+                else:
+                    pass
+                count += 1
 
     def __len__(self):
         return len(self.dataset)
@@ -428,6 +444,13 @@ def get_config(args):
         skip = []
         max_seq_len = 12
 
+    elif args.arch == 'deit':
+        l1 = [18, 36, 54, 72, 90, 108, 126, 144, 162, 180, 198, 216]
+        l2 = []
+        l3 = [21, 39, 57, 75, 93, 111, 129, 147, 165, 183, 201, 219]
+        skip = []
+        max_seq_len = 3072
+
     return l1, l2, l3, skip, max_seq_len
 
 
@@ -704,7 +727,6 @@ def load_checkpoint(model, path):
     return model
 
 
-# if __name__ == '__main__':
-#     model = Discriminator(max_dim=4608, enc_dim=512, dec_dim=512, enc_depth=8, dec_depth=8, n_head=2)
-#     print(model)
-#     print(1111)
+if __name__ == '__main__':
+    model = Discriminator(max_dim=4608, enc_dim=512, dec_dim=512, enc_depth=8, dec_depth=8, n_head=2)
+    print(model)

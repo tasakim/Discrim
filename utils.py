@@ -21,23 +21,23 @@ class WData(Dataset):
         self.max_length = self.get_max_length()
         count = 1
         for name, module in self.model.named_modules():
-            if isinstance(module, nn.Conv2d):
-                if count in self.mask_index:
-                    item = module.weight
-                    length = item.shape[1] * item.shape[2] * item.shape[3]
-                    param = item.data.flatten(start_dim=1)
-                    param = self._normalize(param) if self.normalize else param
-                    if length < self.max_length:
-                        pad = torch.nn.ConstantPad1d((0, int(self.max_length - length)), 0)
-                        param = pad(param)
-                        # param = param
-                    else:
-                        param = param
-                    self.dataset.append([param, length])
-                else:
-                    pass
-                count += 1
-            elif isinstance(module, nn.Linear):
+            # if isinstance(module, nn.Conv2d):
+            #     if count in self.mask_index:
+            #         item = module.weight
+            #         length = item.shape[1] * item.shape[2] * item.shape[3]
+            #         param = item.data.flatten(start_dim=1)
+            #         param = self._normalize(param) if self.normalize else param
+            #         if length < self.max_length:
+            #             pad = torch.nn.ConstantPad1d((0, int(self.max_length - length)), 0)
+            #             param = pad(param)
+            #             # param = param
+            #         else:
+            #             param = param
+            #         self.dataset.append([param, length])
+            #     else:
+            #         pass
+            #     count += 1
+            if isinstance(module, nn.Linear):
                 if count in self.mask_index:
                     item = module.weight
                     length = item.shape[1]
@@ -276,6 +276,7 @@ def test(test_loader, model, criterion, args):
         for i, (input, target) in enumerate(test_loader):
             input, target = input.cuda(args.local_rank), target.cuda(args.local_rank)
             output = model(input)
+            output = output.logits if hasattr(output, 'logits') else output
             loss = criterion(output, target)
 
             prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
@@ -444,10 +445,10 @@ def get_config(args):
         skip = []
         max_seq_len = 12
 
-    elif args.arch == 'deit':
-        l1 = [18, 36, 54, 72, 90, 108, 126, 144, 162, 180, 198, 216]
+    elif args.arch == 'deit_base':
+        l1 = [5, 11, 17, 23, 29, 35, 41, 47, 53, 59, 65, 71]
         l2 = []
-        l3 = [21, 39, 57, 75, 93, 111, 129, 147, 165, 183, 201, 219]
+        l3 = [6, 12, 18, 24, 30, 36, 42, 48, 54, 60, 66, 72]
         skip = []
         max_seq_len = 3072
 
@@ -538,8 +539,6 @@ def test_one_layer(dataloader, model, criterion, epoch, args, tb_logger=None):
             weight = weight.cuda() if torch.cuda.is_available() else weight
             iter_loss = 0
             for n in range(weight.shape[1] // batch_size):
-                # import pdb
-                # pdb.set_trace()
                 new_weight = weight.repeat(batch_size, 1, 1)
                 # if model.pos_emd0 != None:
                 #     new_weight += model.pos_emd0(torch.LongTensor([i for i in range(new_weight.shape[1])]))
@@ -585,12 +584,12 @@ def test_one_layer(dataloader, model, criterion, epoch, args, tb_logger=None):
 def train_one_layer_ddp(dataloader, mask_percent, model, epoch, criterion, optimizer, scheduler, args, tb_logger=None):
     model = model.train()
     # total_loss = 0
-    repeat = args.repeat // args.nprocs
+    repeat = max(1, args.repeat // args.nprocs)
     # for iteration in range(60):
-    for iteration in range(10):
+    round = 320 // args.nprocs
+    for iteration in range(round):
         total_loss = 0
         for iter, (weight, length) in enumerate(dataloader):
-
             weight = weight.repeat(repeat, 1, 1)
 
             # if random.random() > 0.5:
@@ -637,10 +636,10 @@ def train_one_layer_ddp(dataloader, mask_percent, model, epoch, criterion, optim
             l = total_loss
             # print('epoch={}, layer={}, loss={:.4f}'.format(epoch, iter, loss.item()))
         # print(dist.get_rank(), epoch, total_loss)
+
         total_loss = reduce_mean(total_loss, args.nprocs)
         # print(total_loss)
         print_rank0('Train: epoch={}, loss={:.4f}'.format(epoch, total_loss.item() / len(dataloader)))
-
     if tb_logger is not None and dist.get_rank() == 0:
         tb_logger.add_scalar(tag='Loss/train', scalar_value=total_loss / len(dataloader), global_step=epoch)
         tb_logger.add_scalar(tag='Others/Mask Ratio', scalar_value=mask_percent, global_step=epoch)
@@ -663,8 +662,6 @@ def test_one_layer_ddp(dataloader, model, criterion, epoch, args, tb_logger=None
             weight = weight.cuda() if torch.cuda.is_available() else weight
             iter_loss = 0
             for n in range(weight.shape[1] // batch_size):
-                # import pdb
-                # pdb.set_trace()
                 new_weight = weight.repeat(batch_size, 1, 1)
                 # if model.pos_emd0 != None:
                 #     new_weight += model.pos_emd0(torch.LongTensor([i for i in range(new_weight.shape[1])]))

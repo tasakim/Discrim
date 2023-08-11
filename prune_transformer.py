@@ -11,7 +11,7 @@ import transformers
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str, help='Path to dataset', default='/ssd/ssd0/n50031076/Dataset/ImageNet')
 parser.add_argument('--dataset', type=str, default='imagenet', help='Choose between Cifar10/100 and ImageNet.')
-parser.add_argument('--arch', type=str, default='deit', help='Model Architecture')
+parser.add_argument('--arch', type=str, default='deit_base', help='Model Architecture')
 parser.add_argument('--pretrained', type=str, default='./pretrained/deit_base',
                     help='Pretrained Weights of CV Models')
 parser.add_argument('--ckpt', type=str, help='Checkpoint of Discriminator')
@@ -46,7 +46,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = True
     train_loader, test_loader, num_classes, train_sampler, test_sampler = prepare_dataset(args)
     if 'deit' in args.arch:
-        target_model = transformers.DeiTForImageClassification.from_pretrained(args.pretrained)
+        target_model = transformers.AutoModelForImageClassification.from_pretrained(args.pretrained)
     else:
         pass
 
@@ -60,7 +60,7 @@ if __name__ == '__main__':
     mask_index = []
     l1, l2, l3, skip, max_length = get_config(args)
 
-    ratio_list = [0, 0] + [0.5] * 70
+    ratio_list = [0.5] * 500
     discrim = torch.load(args.ckpt, map_location='cpu')
     discrim = discrim.cuda()
     max_dim, max_length = discrim.max_dim, max_length
@@ -76,12 +76,13 @@ if __name__ == '__main__':
                 ratio = 1 - ratio_list[linear_count]
                 unmask, mask = manner_list[args.manner](module.weight.data, discrim, criterion_rec, max_dim, ratio, args)
                 mask_index.append(mask.cpu())
+                # print(len(mask_index[-1]))
                 # mask_index.append(mask.cpu())
                 # print(mask_index[-1].device, module.weight.data.device)
                 weight = torch.index_select(module.weight.data, dim=0, index=torch.LongTensor(mask_index[-1]))
                 bias = torch.index_select(module.bias.data, dim=0,
                                           index=torch.LongTensor(mask_index[-1])) if module.bias is not None else None
-                new_layer = nn.Linear(in_features=weight.shape[1], out_features=weight.shape[0], bias=module.bias)
+                new_layer = nn.Linear(in_features=weight.shape[1], out_features=weight.shape[0], bias=True if module.bias is not None else False)
                 new_layer.weight = nn.Parameter(weight)
                 new_layer.bias = nn.Parameter(bias) if module.bias is not None else None
                 set_module(pruned_model, name, new_layer)
@@ -98,7 +99,7 @@ if __name__ == '__main__':
                 weight = torch.index_select(weight, dim=1, index=torch.LongTensor(mask_index[-1 - 1]))
                 bias = torch.index_select(module.bias.data, dim=0, index=torch.LongTensor(
                     mask_index[-1])) if module.bias is not None else None
-                new_layer = nn.Linear(in_features=weight.shape[1], out_features=weight.shape[0], bias=module.bias)
+                new_layer = nn.Linear(in_features=weight.shape[1], out_features=weight.shape[0], bias=True if module.bias is not None else False)
                 new_layer.weight = nn.Parameter(weight)
                 new_layer.bias = nn.Parameter(bias) if module.bias is not None else None
                 set_module(pruned_model, name, new_layer)
@@ -109,7 +110,7 @@ if __name__ == '__main__':
             elif linear_count in l3:
                 weight = torch.index_select(module.weight.data, dim=1, index=torch.LongTensor(mask_index[-1]))
                 bias = module.bias.data if module.bias is not None else None
-                new_layer = nn.Linear(in_features=weight.shape[1], out_features=weight.shape[0], bias=module.bias)
+                new_layer = nn.Linear(in_features=weight.shape[1], out_features=weight.shape[0], bias=True if module.bias is not None else False)
                 new_layer.weight = nn.Parameter(weight)
                 new_layer.bias = nn.Parameter(bias) if module.bias is not None else None
                 set_module(pruned_model, name, new_layer)

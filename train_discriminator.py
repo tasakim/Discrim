@@ -7,13 +7,14 @@ import models
 import copy
 from torch.utils.tensorboard import SummaryWriter
 import time
+import transformers
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', type=int, default=800, help='Training Epochs')  # !!!!!!!!!!!!!
-parser.add_argument('--arch', type=str, default='resnet18', help='Model Architecture')
+parser.add_argument('--arch', type=str, default='deit', help='Model Architecture')
 parser.add_argument('--repeat', type=int, default=32,
                     help='Number of Samples within a forward when training Discrim')  # !!!!!!!!!!!!!
-parser.add_argument('--pretrained', type=str, default='./pretrained/r18_imagenet.pth',
+parser.add_argument('--pretrained', type=str, default='./pretrained/deit_base',
                     help='Pretrained Weights of CV Models')
 # parser.add_argument('--pretrained', type=str, default='./pretrained/densenet_c10.pth',
 #                     help='Pretrained Weights of CV Models')
@@ -75,11 +76,26 @@ elif args.arch == 'densenet':
     num_classes = 1000
 
 elif args.arch == 'deit':
-    test_list = [18, 36, 54, 72, 90, 108, 126, 144, 162, 180, 198, 216]
-
-    train_list = [18, 36, 54, 72, 90, 108, 126, 144, 162, 180, 198, 216]
+    test_list = [5, 11, 17, 23, 29, 35, 41, 47, 53, 59, 65, 71]
+    train_list = [5, 11, 17, 23, 29, 35, 41, 47, 53, 59, 65, 71]
     max_dim = 768
     max_seq_len = 3072
+    num_classes = 1000
+
+elif args.arch == 'efficientnet_b0':
+    test_list = [6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56, 61, 66, 71, 76]
+
+    train_list = [6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56, 61, 66, 71, 76]
+    max_dim = 192
+    max_seq_len = 1152
+    num_classes = 1000
+
+elif args.arch == 'efficientnet_b1':
+    test_list = [6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56, 61, 66, 71, 76, 91, 96, 101, 106, 111, 116, 121, 126, 131, 136, 141, 146, 151, 156, 161, 166, 171, 176, 181, 186, 191]
+
+    train_list = [6, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56, 61, 66, 71, 76, 91, 96, 101, 106, 111, 116, 121, 126, 131, 136, 141, 146, 151, 156, 161, 166, 171, 176, 181, 186, 191]
+    max_dim = 320
+    max_seq_len = 1920
     num_classes = 1000
 
 seed = 1042
@@ -90,12 +106,20 @@ np.random.seed(seed)  # Numpy module.
 random.seed(seed)  # Python random module.
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
+# config = {
+#     'enc_dim': 768,
+#     'dec_dim': 512,
+#     'enc_depth': 12,
+#     'dec_depth': 8,
+#     'n_head': 8
+# }
+
 config = {
-    'enc_dim': 768,
-    'dec_dim': 512,
-    'enc_depth': 12,
-    'dec_depth': 8,
-    'n_head': 8
+    'enc_dim': 128,
+    'dec_dim': 128,
+    'enc_depth': 4,
+    'dec_depth': 4,
+    'n_head': 4
 }
 
 if __name__ == '__main__':
@@ -105,15 +129,17 @@ if __name__ == '__main__':
     print_rank0(args)
     print_rank0('Available GPU Number {}'.format(args.nprocs))
     if dist.get_rank() == 0:
-        tb_logger = SummaryWriter(log_dir="runs/{}/{}AdamW_pos_{}".format(args.arch, str(train_list),
-                                                                          time.strftime("%Y-%m-%d %H-%M-%S",
-                                                                                        time.localtime())))
-        tb_logger.add_text('structure_config', str(config))
+        # tb_logger = SummaryWriter(log_dir="runs/{}/{}AdamW_pos_{}".format(args.arch, str(train_list),
+        #                                                                   time.strftime("%Y-%m-%d %H-%M-%S",
+        #                                                                                 time.localtime())))
+        # tb_logger.add_text('structure_config', str(config))
+        tb_logger = None
     else:
         tb_logger = None
-    target_model = models.__dict__[args.arch](num_classes=num_classes)
-    target_model.load_state_dict(torch.load(args.pretrained, map_location='cpu'))
-
+    # target_model = models.__dict__[args.arch](num_classes=num_classes)
+    # target_model.load_state_dict(torch.load(args.pretrained, map_location='cpu'))
+    target_model = transformers.AutoModelForImageClassification.from_pretrained(args.pretrained)
+    target_model = [x for x in target_model.children()][0]
     print_rank0('-' * 20, 'Train Discriminator', '-' * 20)
 
     enc_dim, dec_dim, enc_depth, dec_depth, n_head = parse_structure(config)
@@ -122,7 +148,8 @@ if __name__ == '__main__':
     discrim.pos_emd = nn.Embedding(max_seq_len, dec_dim)
     discrim.pos_emd0 = nn.Embedding(max_seq_len, enc_dim)
     print_rank0(discrim)
-    discrim = load_checkpoint(discrim, args.ckpt) if args.ckpt is not None else discrim
+    # discrim = torch.load('./mae/best_imagenet_deit-b.pt')
+    discrim = load_checkpoint(discrim, args.ckpt) if args.ckpt is not None else discrim #!!!!!!!!!
     discrim = discrim.cuda(args.local_rank)
     discrim = torch.nn.parallel.DistributedDataParallel(discrim, device_ids=[args.local_rank])
     trainset = WData(target_model, train_list)
@@ -152,12 +179,15 @@ if __name__ == '__main__':
     set_prefix = 'c10' if args.arch in ['resnet56', 'vgg16', 'vgg16bn', 'densenet'] else 'imagenet'
     save_prefix = 'best_' + set_prefix
     epoch_flag = -10
+    # test_loss = test_one_layer_ddp(testloader, discrim, criterion_rec, 0, args, tb_logger)
+    # exit()
     for epoch in range(args.epochs):
         train_sampler.set_epoch(epoch)
         test_sampler.set_epoch(epoch)
         prev_discrim = deepcopy(discrim)
         # train_one_layer(trainloader, args.p_ratio, discrim, epoch, criterion_rec, optimizer_rec, scheduler_rec, args, tb_logger)
         # test_loss = test_one_layer(testloader, discrim, criterion_rec, epoch, args, tb_logger)
+
         train_one_layer_ddp(trainloader, args.p_ratio, discrim, epoch, criterion_rec, optimizer_rec, scheduler_rec,
                             args, tb_logger)
 

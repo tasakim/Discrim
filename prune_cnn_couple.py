@@ -57,7 +57,7 @@ if __name__ == '__main__':
     mask_index = []
     l1, l2, l3, skip, max_length = get_config(args)
 
-    ratio_list = [0, 0] + [0.35] * 70
+    ratio_list = [0, 0] + [0.0] * 70
     discrim = torch.load(args.ckpt, map_location='cpu')
     discrim = discrim.cuda()
     max_dim, max_length = discrim.max_dim, max_length
@@ -70,10 +70,11 @@ if __name__ == '__main__':
     # import pdb
     # pdb.set_trace()
     score_dict = {'layer1': 0, 'layer2': 0, 'layer3': 0}
+
     for name, module in pruned_model.named_modules():
         if isinstance(module, nn.Conv2d):
             if couple_index in couple:
-                ratio = 0.3
+                ratio = 0.0
                 unmask, mask, score = manner_list[args.manner](module.weight.data, discrim, criterion_rec, max_dim,
                                                                ratio,
                                                                args, return_score=True)
@@ -88,10 +89,12 @@ if __name__ == '__main__':
                 couple_index += 1
         else:
             pass
-    rate = 1 - ratio_list[-1]
+    rate = 0.8 #1 - ratio_list[-1]
+    rate_dict = {'layer1': 0.9, 'layer2': 0.9, 'layer3': 0.9}
     indice_dict = {}
     for name, score in score_dict.items():
-        indice_dict[name] = torch.Tensor(score_dict[name]).sort(descending=True).indices.long()[:int(rate * len(score_dict[name]))]
+        # indice_dict[name] = torch.rand(len(score_dict[name])).sort().indices.long()[:int(rate_dict[name] * len(score_dict[name]))]
+        indice_dict[name] = torch.Tensor(score_dict[name]).sort(descending=True).indices.long()[:int(rate_dict[name] * len(score_dict[name]))]
         # indice_dict[name] = torch.Tensor(score_dict[name]).sort(descending=True).indices.long()
 
     # import pdb; pdb.set_trace()
@@ -240,10 +243,10 @@ if __name__ == '__main__':
             new_layer.bias = nn.Parameter(bias) if module.bias is not None else None
             set_module(pruned_model, name, new_layer)
 
-    # pruned_model.cuda(args.local_rank)
-    # top1, _ = test(test_loader, pruned_model, criterion_cls, args)
-    # print_rank0('---------------Pruned Model Acc {}%---------------'.format(top1))
-    # pruned_model.cpu()
+    pruned_model.cuda(args.local_rank)
+    top1, _ = test(test_loader, pruned_model, criterion_cls, args)
+    print_rank0('---------------Pruned Model Acc {}%---------------'.format(top1))
+    pruned_model.cpu()
 
     if dist.get_rank() == 0:
         print(pruned_model)

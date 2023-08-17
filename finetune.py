@@ -5,12 +5,12 @@ from models import *
 from torch.cuda.amp import GradScaler
 
 parser = argparse.ArgumentParser(description='Finetune')
-parser.add_argument('--data_path', type=str, help='Path to dataset', default='/ssd/ssd0/n50031076/Dataset/ImageNet')
-parser.add_argument('--dataset', type=str, default='imagenet',
-                    help='Choose between Cifar10/100 and ImageNet.')
-# parser.add_argument('--data_path', type=str, help='Path to dataset', default='/ssd/ssd0/n50031076/Dataset/Cifar10')
-# parser.add_argument('--dataset', type=str, default='cifar10',
-#                     help='Choose between Cifar10/100 and ImageNet.')
+#parser.add_argument('--data_path', type=str, help='Path to dataset', default='/ssd/ssd0/n50031076/Dataset/ImageNet')
+#parser.add_argument('--dataset', type=str, default='imagenet',
+#                    help='Choose between Cifar10/100 and ImageNet.')
+parser.add_argument('--data_path', type=str, help='Path to dataset', default='/ssd/ssd0/n50031076/Dataset/Cifar10')
+parser.add_argument('--dataset', type=str, default='cifar10',
+                     help='Choose between Cifar10/100 and ImageNet.')
 parser.add_argument('--batch_size', type=int, default=256, help='Batch size.')
 parser.add_argument('--lr', type=float, default=0.01, help='The Learning Rate.')
 parser.add_argument('--lr_type', type=str, default='cos')
@@ -37,19 +37,17 @@ def main():
     train_loader, test_loader, num_classes, train_sampler, test_sampler = prepare_dataset(args)
     criterion = nn.CrossEntropyLoss().cuda(args.local_rank)
     torch.backends.cudnn.benchmark = True
-    # ori_model = torch.load('target_model.pt')
-    # ori_model.cuda(args.local_rank)
-    # import pdb
-    # pdb.set_trace()
+    ori_model = torch.load('target_model.pt')
+    ori_model.cuda(args.local_rank)
     pruned_model = torch.load(args.checkpoint)
     if dist.get_rank() == 0:
         print(pruned_model)
     pruned_model.cuda(args.local_rank)
     optimizer, scheduler = prepare_other(pruned_model, args)
     interval = 0
-    # print_rank0('--------------Test Original Model--------------')
-    # top1, _ = test(test_loader, ori_model, criterion, args)
-    # print_rank0('---------------Original Model Acc {}%---------------'.format(top1))
+    print_rank0('--------------Test Original Model--------------')
+    top1, _ = test(test_loader, ori_model, criterion, args)
+    print_rank0('---------------Original Model Acc {}%---------------'.format(top1))
     print_rank0('---------------Test Pruned Model---------------')
     top1, top5 = test(test_loader, pruned_model, criterion, args)
     print_rank0('---------------Pruned Model Acc {} | {}%---------------'.format(top1, top5))
